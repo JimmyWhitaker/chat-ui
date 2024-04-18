@@ -94,7 +94,8 @@ async function getChatPromptRender(
 		throw Error(
 			"Failed to load tokenizer for model " +
 				m.name +
-				" consider setting chatPromptTemplate manually or making sure the model is available on the hub."
+				" consider setting chatPromptTemplate manually or making sure the model is available on the hub. Error: " +
+				(e as Error).message
 		);
 	}
 
@@ -177,6 +178,8 @@ const addEndpoint = (m: Awaited<ReturnType<typeof processModel>>) => ({
 						return await endpoints.cloudflare(args);
 					case "cohere":
 						return await endpoints.cohere(args);
+					case "langserve":
+						return await endpoints.langserve(args);
 					default:
 						// for legacy reason
 						return endpoints.tgi(args);

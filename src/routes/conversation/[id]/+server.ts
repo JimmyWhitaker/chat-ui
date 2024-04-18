@@ -345,20 +345,19 @@ export async function POST({ request, locals, params, getClientAddress }) {
 				{ projection: { rag: 1, dynamicPrompt: 1, generateSettings: 1 } }
 			);
 
-			const assistantHasRAG =
+			const assistantHasDynamicPrompt =
+				ENABLE_ASSISTANTS_RAG === "true" && !!assistant && !!assistant?.dynamicPrompt;
+
+			const assistantHasWebSearch =
 				ENABLE_ASSISTANTS_RAG === "true" &&
-				assistant &&
-				((assistant.rag &&
-					(assistant.rag.allowedLinks.length > 0 ||
-						assistant.rag.allowedDomains.length > 0 ||
-						assistant.rag.allowAllDomains)) ||
-					assistant.dynamicPrompt);
+				!!assistant &&
+				!!assistant.rag &&
+				(assistant.rag.allowedLinks.length > 0 ||
+					assistant.rag.allowedDomains.length > 0 ||
+					assistant.rag.allowAllDomains);
 
 			// perform websearch if needed
-			if (
-				!isContinue &&
-				((webSearch && !conv.assistantId) || (assistantHasRAG && !assistant.dynamicPrompt))
-			) {
+			if (!isContinue && (webSearch || assistantHasWebSearch)) {
 				messageToWriteTo.webSearch = await runWebSearch(
 					conv,
 					messagesForPrompt,
@@ -369,7 +368,7 @@ export async function POST({ request, locals, params, getClientAddress }) {
 
 			let preprompt = conv.preprompt;
 
-			if (assistant?.dynamicPrompt && preprompt && ENABLE_ASSISTANTS_RAG === "true") {
+			if (assistantHasDynamicPrompt && preprompt) {
 				// process the preprompt
 				const urlRegex = /{{\s?url=(.*?)\s?}}/g;
 				let match;
@@ -422,15 +421,16 @@ export async function POST({ request, locals, params, getClientAddress }) {
 					// if not generated_text is here it means the generation is not done
 					if (!output.generated_text) {
 						if (!output.token.special) {
-							// 33% chance to send the stream update, with a max buffer size of 30 chars
 							buffer += output.token.text;
 
-							if (Math.random() < 0.33 || buffer.length > 30) {
+							// send the first 5 chars
+							// and leave the rest in the buffer
+							if (buffer.length >= 5) {
 								update({
 									type: "stream",
-									token: buffer,
+									token: buffer.slice(0, 5),
 								});
-								buffer = "";
+								buffer = buffer.slice(5);
 							}
 
 							// abort check
@@ -447,7 +447,8 @@ export async function POST({ request, locals, params, getClientAddress }) {
 							messageToWriteTo.content += output.token.text;
 						}
 					} else {
-						messageToWriteTo.interrupted = !output.token.special;
+						messageToWriteTo.interrupted =
+							!output.token.special && !model.parameters.stop?.includes(output.token.text);
 						// add output.generated text to the last message
 						// strip end tokens from the output.generated_text
 						const text = (model.parameters.stop ?? []).reduce((acc: string, curr: string) => {
